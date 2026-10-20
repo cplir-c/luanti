@@ -1,0 +1,211 @@
+#include "irr/include/irrTypes.h"
+
+#include <memory>
+#include <vector>
+#include <bitset>
+
+template<typename T, u32 stored_length>
+class PalettedStorageMutRef {
+	PalettedStorage<T, stored_length>& storage;
+	u32 idx;
+
+	PalettedStorageMutRef(PalettedStorage<T, stored_length>& storage, u32 idx):
+		storage(storage), idx(idx) {}
+
+	void operator =(T t) {
+		storage.new_index(idx, t);
+	}
+	T operator *() const {
+		return storage.old_index(idx);
+	}
+	operator T() const {
+		return storage.old_index(idx);
+	}
+	// haha...
+	PalettedStorageMutRef operator->() {
+		return *this;
+	}
+};
+
+template<typename T, u32 stored_length = (1 << 12)>
+class PalettedStorage {
+	std::vector<T> palette {};
+	std::unique_ptr<u16[]> storage = new u16[stored_length >> 4];
+	u8 palette_shift = 4;
+
+	u32 u16_mask() const {
+		// goal: {0x1, 0x3, 0xf, 0xff, 0xffff}
+		// 4 - palette_shift: {4, 3, 2, 1, 0}
+		// 1 << (4-shift)   : {16, 8, 4, 2, 1}
+		// 1 << 1<<(4-shift): {0x10000, 0x100, 0x10, 0x4, 0x2}
+		// (1<<1<<(4-shift))-1: {0xffff, 0xff, 0xf, 0x3, 0x1}
+		u32 u16_mask = (u32(1) << (u32(1) << (4 - palette_shift))) - 1;
+		return u16_mask;
+	}
+	u32 u16_bit_mask() const {
+		// goal: {0x0, 0x1, 0x3, 0x7, 0xf}[shift]
+		// 1 << shift: {1, 2, 4, 8, 16}
+		// (1<<shift)-1: {0, 0x1, 0x3, 0x7, 0xf}
+		u32 u16_bit_mask = (u32(1) << palette_shift) - 1;
+		return u16_bit_mask;
+	}
+
+	s32 resolve_t(T t) const {
+		for (s32 i = 0; i < palette.size(); ++i) {
+			if (palette[i] == t) {
+				return i;
+			}
+		}
+		return -1;
+	}
+	template<typename Fun>
+	void change_storage_size(s8 delta, const Fun& fun);
+
+	u32 resolve_t(T t) {
+		for (u32 i = 0; i < palette.size(); ++i) {
+			if (palette[i] == t) {
+				return i;
+			}
+		}
+		if (palette.size() + 1 > this->u16_mask()) {
+			// it doesn't fit the current index size;
+			//		we need to expand all our indices
+			this->change_storage_size(this->palette_shift + 1, [](u32 i){ return i; });
+		}
+		u32 idx = u32(this->palette.size());
+		this->palette.emplace_back(t);
+		return idx;
+	}
+	template<typename Fun>
+	void change_storage_size(u8 new_shift, const Fun& mapper) {
+		// unpack our indices,
+		// increase our palette shift,
+		// then repack our indices
+		u32 indices[stored_length] = {};
+
+		// unpack indices
+		{
+			u32 u16_bit_mask = this->u16_bit_mask();
+			u32 u16_mask = this->u16_mask();
+			for (u32 i = 0; i < stored_length; ++i) {
+				u32 storage_index = i >> palette_shift;
+				u32 u16_bit = i & u16_bit_mask;
+				// apply the mapper function to the index as it's unpacked
+				indices[i] = mapper(u32((storage[storage_index] >> u16_bit) & u16_mask));
+			}
+		}
+
+		this->palette_shift = new_shift;
+		this->storage = new u16[stored_length >> palette_shift];
+
+		// repack indices
+		{
+			u32 u16_bit_mask = this->u16_bit_mask();
+			u32 u16_mask = this->u16_mask();
+			for (u32 i = 0; i < stored_length; ++i) {
+				u32 storage_index = i >> palette_shift;
+				u32 u16_bit = i & u16_bit_mask;
+				// no overlaps, so we can just or it in
+				storage[storage_index] |= (indices[i] << u16_bit);
+			}
+		}
+	}
+public:
+	T old_index(u32 idx) const {
+		u32 indexed = 0;
+
+		u32 storage_index = idx >> palette_shift;
+		u32 u16_bit = idx & this->u16_bit_mask();
+		u32 u16_mask = this->u16_mask();
+		return palette[(storage[storage_index] >> u16_bit) & u16_mask];
+
+		/*
+		// The above is a branchess version of this:
+
+		switch(palette_shift) {
+			case 4:  // 16 indices per u16 (2**4)
+				indexed = (storage[idx >> 4] >> (idx & 0xf)) & 0x1;
+				break;
+			case 3:  // eight indices per u16 (2**3), each 2 bits
+				indexed = (storage[idx >> 3] >> ((idx & 0x7) << 1)) & 0x3;
+				break;
+			case 2:  // four indices per u16 (2**2), each 4 bits
+				indexed = (storage[idx >> 2] >> ((idx & 0x3) << 2)) & 0xf;
+				break;
+			case 1:  // two indices per u16 (2**1), each 8 bits
+				indexed = (storage[idx >> 1] >> ((idx & 1) << 3)) & 0xff;
+				break;
+			case 0: // one index per u16 (2**0), each 16 (actually 12) bits
+				indexed = storage[idx];
+				break;
+		}
+		return palette[indexed];
+		*/
+	}
+	void new_index(u32 idx, T t) {
+		u32 palette_idx = this->resolveT(t);
+
+		u32 storage_index = idx >> palette_shift;
+		u32 u16_bit = idx & this->u16_bit_mask();
+		u32 u16_mask = this->u16_mask();
+
+		// remove the old index
+		storage[storage_index] &= ~(u16_mask << u16_bit);
+		// add in the new one
+		storage[storage_index] |= (idx & u16_mask) << u16_bit;
+	}
+
+
+	T operator [](u32 idx) const {
+		return old_index(idx);
+	}
+	auto operator [](u32 idx) {
+		return PalettedStorageMutRef<T, stored_length>(*this, idx);
+	}
+
+
+	void try_shrink() {
+		std::bitset<stored_length> used_palette_slots = {};
+		{ // read all the indices, and set the corresponding palette bit
+			u32 u16_bit_mask = this->u16_bit_mask();
+			u32 u16_mask = this->u16_mask();
+			for (u32 i = 0; i < stored_length; ++i) {
+				u32 storage_index = i >> palette_shift;
+				u32 u16_bit = i & u16_bit_mask;
+				used_palette_slots.set((storage[storage_index] >> u16_bit) & u16_mask);
+			}
+		}
+		size_t used_slots = used_palette_slots.count();
+		// if less than half the palette is used, remove those and remap
+		if (used_slots < ((this->u16_mask() + 1) >> 1)) {
+			// generate remapping-map
+			std::vector<u32> map;
+			map.resize(this->u16_mask() + 1);
+			{
+				u32 old_i = 0;
+				u32 new_i = 0;
+				for (; old_i < palette.size(); ++old_i) {
+					if (used_palette_slots.test(old_i)) {
+						// it's used!
+						map[old_i] = new_i;
+						++new_i;
+					}
+				}
+			}
+
+			u8 old_palette_shift = this->palette_shift;
+			this->palette_shift = 4;
+			while (this->u16_mask() + 1 < used_slots) {
+				++this->palette_shift;
+			}
+
+			u8 new_palette_shift = this->palette_shift;
+			this->palette_shift = old_palette_shift;
+			// remap the storage, and change its size
+			this->change_storage_size(
+					new_palette_shift,
+					[&map](u32 idx) { return map[idx]; }
+				);
+		}
+	}
+};
