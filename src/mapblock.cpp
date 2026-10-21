@@ -232,7 +232,7 @@ void MapBlock::copyFrom(const VoxelManipulator &src)
 	std::array<MapNode, 4096> data_block = this->data.toArray();
 	src.copyTo(data_block.data(), data_area, v3s16(0,0,0),
 			getPosRelative(), data_size);
-	this->data.fromArray(data_block.data());
+	this->data.fromArray(data_block);
 }
 
 void MapBlock::reallocate(u32 /*count*/, MapNode) {}
@@ -564,7 +564,7 @@ void MapBlock::deSerializeUncompressed(std::istream &is, u8 version, bool disk)
 		}
 	}
 	// Now that the IDs have been corrected, palette the data
-	this->data.fromArray(data_block.data());
+	this->data.fromArray(data_block);
 
 	TRACESTREAM(<<"MapBlock::deSerialize "<<getPos()
 			<<": Done."<<std::endl);
@@ -714,7 +714,7 @@ void MapBlock::deSerialize_pre29(std::istream &is, u8 version, bool disk)
 			m_is_air_expired = false;
 		}
 	}
-	this->data.fromArray(data_block.data());
+	this->data.fromArray(data_block);
 
 	TRACESTREAM(<<"MapBlock::deSerialize "<<getPos()
 			<<": Done."<<std::endl);
@@ -925,7 +925,7 @@ void MapBlock::deSerialize_pre22(std::istream &is, u8 version, bool disk)
 		}
 	}
 
-	this->data.fromArray(data_block.data());
+	this->data.fromArray(data_block);
 }
 
 /*

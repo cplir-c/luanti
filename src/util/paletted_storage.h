@@ -1,4 +1,6 @@
-#include "irr/include/irrTypes.h"
+#pragma once
+
+#include "irrTypes.h"
 
 #include <memory>
 #include <vector>
@@ -6,6 +8,15 @@
 #include <memory_resource>
 #include <algorithm>
 #include <iterator>
+
+template<typename T, u32 stored_length>
+class PalettedStorage;
+
+static u16* paletted_storage_allocate_(u32 length) {
+	u16* buf = new u16[length];
+	std::memset(buf, 0, sizeof(u16) * length);
+	return buf;
+}
 
 template<typename T, u32 stored_length>
 class PalettedStorageMutRef {
@@ -38,7 +49,9 @@ class PalettedStorageMutRef {
 template<typename T, u32 stored_length = (1 << 12)>
 class PalettedStorage {
 	std::vector<T> palette {};
-	std::unique_ptr<u16[]> storage = new u16[stored_length >> 4];
+	std::unique_ptr<u16[]> storage {
+		paletted_storage_allocate_(stored_length >> 4)
+	};
 	u8 palette_shift = 4;
 
 	u32 u16_mask() const {
@@ -58,7 +71,7 @@ class PalettedStorage {
 		return u16_bit_mask;
 	}
 
-	s32 resolve_t(T t) const {
+	s32 map_t(T t) const {
 		for (s32 i = 0; i < palette.size(); ++i) {
 			if (palette[i] == t) {
 				return i;
@@ -66,10 +79,8 @@ class PalettedStorage {
 		}
 		return -1;
 	}
-	template<typename Fun>
-	void change_storage_size(s8 delta, const Fun& fun);
 
-	u32 resolve_t(T t) {
+	u32 mapped_t(T t) {
 		for (u32 i = 0; i < palette.size(); ++i) {
 			if (palette[i] == t) {
 				return i;
@@ -104,12 +115,11 @@ class PalettedStorage {
 		}
 
 		this->palette_shift = new_shift;
-		this->storage = new u16[stored_length >> palette_shift];
+		this->storage.reset(paletted_storage_allocate_(stored_length >> palette_shift));
 
 		// repack indices
 		{
 			u32 u16_bit_mask = this->u16_bit_mask();
-			u32 u16_mask = this->u16_mask();
 			for (u32 i = 0; i < stored_length; ++i) {
 				u32 storage_index = i >> palette_shift;
 				u32 u16_bit = i & u16_bit_mask;
@@ -120,8 +130,6 @@ class PalettedStorage {
 	}
 public:
 	T read_index(u32 idx) const {
-		u32 indexed = 0;
-
 		u32 storage_index = idx >> palette_shift;
 		u32 u16_bit = idx & this->u16_bit_mask();
 		u32 u16_mask = this->u16_mask();
@@ -151,7 +159,7 @@ public:
 		*/
 	}
 	void write_index(u32 idx, T t) {
-		u32 palette_idx = this->resolve_t(t);
+		u32 palette_idx = this->mapped_t(t);
 
 		u32 storage_index = idx >> palette_shift;
 		u32 u16_bit = idx & this->u16_bit_mask();
@@ -160,16 +168,15 @@ public:
 		// remove the old index
 		storage[storage_index] &= ~(u16_mask << u16_bit);
 		// add in the new one
-		storage[storage_index] |= (idx & u16_mask) << u16_bit;
+		storage[storage_index] |= (palette_idx & u16_mask) << u16_bit;
 	}
 
 	T operator [](u32 idx) const {
-		return old_index(idx);
+		return read_index(idx);
 	}
 	auto operator [](u32 idx) {
 		return PalettedStorageMutRef<T, stored_length>(*this, idx);
 	}
-
 
 	void try_shrink() {
 		std::bitset<stored_length> used_palette_slots = {};
@@ -224,10 +231,8 @@ private:
 		return t;
 	}
 public:
-	void from_array(const T[stored_length] ts);
-
 	template<typename U = T, typename Accessor>
-	void from_array(const U[stored_length] us, const Accessor& accessor) {
+	void fromArray(const U us[stored_length], const Accessor& accessor) {
 		// unpack the Us
 		T ts[stored_length];
 		for (u32 i = 0; i < stored_length; ++i) {
@@ -236,10 +241,10 @@ public:
 			new (ts + i) T(accessor(us[i]));
 		}
 
-		this->from_array(ts);
+		this->fromArray(ts);
 	}
 
-	void from_array(const T[stored_length] ts) {
+	void fromArray(const T ts[stored_length]) {
 		// create our palette
 		{
 			std::array<T, stored_length> arr {};
@@ -247,7 +252,6 @@ public:
 				arr[i] = ts[i];
 			}
 			std::sort(arr.begin(), arr.end());
-			auto endpoint = std::unique(arr.begin(), arr.end());
 			this->palette.assign(arr.begin(), arr.end());
 		}
 
@@ -258,9 +262,9 @@ public:
 		}
 
 		// create the storage
-		this->storage = new u16[stored_length >> palette_shift];
+		this->storage.reset(paletted_storage_allocate_(stored_length >> palette_shift));
 
-		{
+		{ // put our Ts in
 			u32 u16_bit_mask = this->u16_bit_mask();
 			u32 u16_mask = this->u16_mask();
 			for (u32 i = 0; i < stored_length; ++i) {
@@ -271,25 +275,23 @@ public:
 				u32 storage_index = i >> palette_shift;
 				u32 u16_bit = i & u16_bit_mask;
 				// no overlaps, so we can just or it in
-				storage[storage_index] |= (palette_idx << u16_bit);
+				storage[storage_index] |= (palette_idx << u16_bit) & u16_mask;
 			}
 		}
 	}
 
 	template<typename U, typename Setter>
-	void to_array(std::array<U, stored_length>& us, const Setter& setter) const {
-		{
-			u32 u16_bit_mask = this->u16_bit_mask();
-			u32 u16_mask = this->u16_mask();
-			for (u32 i = 0; i < stored_length; ++i) {
-				u32 storage_index = i >> palette_shift;
-				u32 u16_bit = i & u16_bit_mask;
-				setter(us[i], this->storage[(storage[storage_index] >> u16_bit) & u16_mask]);
-			}
+	void toArray(std::array<U, stored_length>& us, const Setter& setter) const {
+		u32 u16_bit_mask = this->u16_bit_mask();
+		u32 u16_mask = this->u16_mask();
+		for (u32 i = 0; i < stored_length; ++i) {
+			u32 storage_index = i >> palette_shift;
+			u32 u16_bit = i & u16_bit_mask;
+			setter(us[i], this->storage[(storage[storage_index] >> u16_bit) & u16_mask]);
 		}
 	}
 
-	void to_array(std::array<T, stored_length>& ts) const {
-		to_array<T>(ts, [](T& dest, T src) { dest = src; });
+	void toArray(std::array<T, stored_length>& ts) const {
+		toArray<T>(ts, [](T& dest, T src) { dest = src; });
 	}
 };

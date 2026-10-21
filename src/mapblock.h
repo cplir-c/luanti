@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <array>
+#include <iterator>
 #include "irr_v3d.h"
 #include "mapnode.h"
 #include "exceptions.h"
@@ -58,18 +59,19 @@ class MapBlockData {
 	PalettedStorage<u8, 4096> paletted_param1;
 	PalettedStorage<u8, 4096> paletted_param2;
 
+  public:
 	MapNode operator[](u32 idx) const {
 		return MapNode{
 				paletted_content[idx],
 				paletted_param1[idx], paletted_param2[idx]
 			};
 	}
-	void set_node(u32 idx, MapNode node) {
-		this->paletted_content.set_index(idx, node.param0);
-		this->paletted_param1.set_index(idx, node.param1);
-		this->paletted_param2.set_index(idx, node.param2);
+	void setNode(u32 idx, MapNode node) {
+		this->paletted_content.write_index(idx, node.param0);
+		this->paletted_param1 .write_index(idx, node.param1);
+		this->paletted_param2 .write_index(idx, node.param2);
 	}
-	MapNode get_node(u32 idx) const {
+	MapNode getNode(u32 idx) const {
 		return (*this)[idx];
 	}
 	void try_shrink() {
@@ -86,18 +88,104 @@ class MapBlockData {
 		this->paletted_param1.toArray(arr,
 				[](MapNode& node, u8 param1) { node.setParam1(param1); });
 		this->paletted_param2.toArray(arr,
-				[](MapNode& node, u8 param1) { node.setParam2(param2); });
+				[](MapNode& node, u8 param2) { node.setParam2(param2); });
 
 		return arr;
 	}
 	void fromArray(const std::array<MapNode, 4096>& arr) {
-		this->paletted_content.fromArray(arr,
+		this->paletted_content.fromArray(arr.data(),
 				[](MapNode node){ return node.getContent(); });
-		this->paletted_param1.fromArray(arr,
+		this->paletted_param1.fromArray(arr.data(),
 				[](MapNode node){ return node.getParam1(); });
-		this->paletted_param2.fromArray(arr,
+		this->paletted_param2.fromArray(arr.data(),
 				[](MapNode node){ return node.getParam2(); });
 	}
+
+	class Iterator {
+		u32 idx = 4096;
+		MapBlockData& data;
+
+	  public:
+		Iterator(MapBlockData& data): idx(4096), data(data) {}
+		Iterator(MapBlockData& data, u32 idx): idx(idx), data(data) {}
+
+		MapNode operator [](s32 offset) const {
+			return data[s32(idx) + offset];
+		}
+		MapNode operator *() const {
+			return data[idx];
+		}
+		MapNode operator ->() const {
+			return data[idx];
+		}
+		Iterator operator +(s32 delta) const {
+			return Iterator(data, u32(idx + delta));
+		}
+		Iterator operator -(s32 delta) const {
+			return *this + (-delta);
+		}
+		Iterator& operator +=(s32 delta) {
+			this->idx = s32(idx) + delta;
+			return *this;
+		}
+		Iterator& operator -=(s32 delta) {
+			return *this += -delta;
+		}
+		Iterator& operator ++() {
+			++this->idx;
+			return *this;
+		}
+		s32 operator -(const Iterator& other) const {
+			return this->idx - other.idx;
+		}
+		// post-increment
+		Iterator operator ++(int) {
+			Iterator copied { *this };
+			++this->idx;
+			return copied;
+		}
+
+		bool operator ==(const Iterator& other) const {
+			return std::addressof(this->data) == std::addressof(other.data)
+				&& this->idx == other.idx;
+		}
+		bool operator !=(const Iterator& other) const {
+			return !(*this == other);
+		}
+
+		bool operator <(const Iterator& other) const {
+			return std::addressof(this->data) == std::addressof(other.data)
+				&& this->idx < other.idx;
+		}
+		bool operator >(const Iterator& other) const {
+			return std::addressof(this->data) == std::addressof(other.data)
+				&& this->idx > other.idx;
+		}
+		bool operator >=(const Iterator& other) const {
+			return std::addressof(this->data) == std::addressof(other.data)
+				&& this->idx >= other.idx;
+		}
+		bool operator <=(const Iterator& other) const {
+			return std::addressof(this->data) == std::addressof(other.data)
+				&& this->idx <= other.idx;
+		}
+	};
+
+	Iterator begin() {
+		return Iterator(*this, 0);
+	}
+	Iterator end() {
+		return Iterator(*this);
+	}
+};
+
+template<>
+struct std::iterator_traits<MapBlockData::Iterator> {
+	using difference_type = s32;
+	using value_type = MapNode;
+	using pointer = void;
+	using reference = MapNode;
+	using iterator_category = std::random_access_iterator_tag;
 };
 
 ////
