@@ -3,6 +3,9 @@
 #include <memory>
 #include <vector>
 #include <bitset>
+#include <memory_resource>
+#include <algorithm>
+#include <iterator>
 
 template<typename T, u32 stored_length>
 class PalettedStorageMutRef {
@@ -13,19 +16,24 @@ class PalettedStorageMutRef {
 		storage(storage), idx(idx) {}
 
 	void operator =(T t) {
-		storage.new_index(idx, t);
+		storage.write_index(idx, t);
 	}
 	T operator *() const {
-		return storage.old_index(idx);
+		return storage.read_index(idx);
 	}
 	operator T() const {
-		return storage.old_index(idx);
+		return storage.read_index(idx);
 	}
 	// haha...
 	PalettedStorageMutRef operator->() {
 		return *this;
 	}
 };
+
+// "Using the system allocator here, especially on Windows, will cost way too much time/latency."
+// - from https://voxel.wiki/wiki/palettes/
+//
+// I looked at std::pmr::unsynchronized_pool_resource, but std::unique_ptr did not take such an option.
 
 template<typename T, u32 stored_length = (1 << 12)>
 class PalettedStorage {
@@ -70,7 +78,7 @@ class PalettedStorage {
 		if (palette.size() + 1 > this->u16_mask()) {
 			// it doesn't fit the current index size;
 			//		we need to expand all our indices
-			this->change_storage_size(this->palette_shift + 1, [](u32 i){ return i; });
+			this->change_storage_size(this->palette_shift - 1, [](u32 i){ return i; });
 		}
 		u32 idx = u32(this->palette.size());
 		this->palette.emplace_back(t);
@@ -111,7 +119,7 @@ class PalettedStorage {
 		}
 	}
 public:
-	T old_index(u32 idx) const {
+	T read_index(u32 idx) const {
 		u32 indexed = 0;
 
 		u32 storage_index = idx >> palette_shift;
@@ -142,8 +150,8 @@ public:
 		return palette[indexed];
 		*/
 	}
-	void new_index(u32 idx, T t) {
-		u32 palette_idx = this->resolveT(t);
+	void write_index(u32 idx, T t) {
+		u32 palette_idx = this->resolve_t(t);
 
 		u32 storage_index = idx >> palette_shift;
 		u32 u16_bit = idx & this->u16_bit_mask();
@@ -154,7 +162,6 @@ public:
 		// add in the new one
 		storage[storage_index] |= (idx & u16_mask) << u16_bit;
 	}
-
 
 	T operator [](u32 idx) const {
 		return old_index(idx);
@@ -193,19 +200,96 @@ public:
 				}
 			}
 
+			// find the smallest palette shift that will accomodate our entries
 			u8 old_palette_shift = this->palette_shift;
 			this->palette_shift = 4;
 			while (this->u16_mask() + 1 < used_slots) {
-				++this->palette_shift;
+				--this->palette_shift;
 			}
-
+			// save the new-found shift, and restore the old one
 			u8 new_palette_shift = this->palette_shift;
 			this->palette_shift = old_palette_shift;
-			// remap the storage, and change its size
+
+			// remap the storage for the new palette shift,
+			//		using our index map
 			this->change_storage_size(
 					new_palette_shift,
 					[&map](u32 idx) { return map[idx]; }
 				);
+		} // if used_slots < (current_slots >> 1)
+	} // void try_shrink()
+
+private:
+	static T identity(T t) {
+		return t;
+	}
+public:
+	void from_array(const T[stored_length] ts);
+
+	template<typename U = T, typename Accessor>
+	void from_array(const U[stored_length] us, const Accessor& accessor) {
+		// unpack the Us
+		T ts[stored_length];
+		for (u32 i = 0; i < stored_length; ++i) {
+			// becuase ts is uninitialized,
+			//		we have to use placement-new here
+			new (ts + i) T(accessor(us[i]));
 		}
+
+		this->from_array(ts);
+	}
+
+	void from_array(const T[stored_length] ts) {
+		// create our palette
+		{
+			std::array<T, stored_length> arr {};
+			for (u32 i = 0; i < stored_length; ++i) {
+				arr[i] = ts[i];
+			}
+			std::sort(arr.begin(), arr.end());
+			auto endpoint = std::unique(arr.begin(), arr.end());
+			this->palette.assign(arr.begin(), arr.end());
+		}
+
+		// find the required shift
+		this->palette_shift = 4;
+		while (this->palette.size() > this->u16_mask() + 1) {
+			--this->palette_shift;
+		}
+
+		// create the storage
+		this->storage = new u16[stored_length >> palette_shift];
+
+		{
+			u32 u16_bit_mask = this->u16_bit_mask();
+			u32 u16_mask = this->u16_mask();
+			for (u32 i = 0; i < stored_length; ++i) {
+				// we happen to know it's sorted, so binary search for the index
+				auto palette_it = std::lower_bound(palette.begin(), palette.end(), ts[i]);
+				u32 palette_idx = std::distance(palette.begin(), palette_it);
+
+				u32 storage_index = i >> palette_shift;
+				u32 u16_bit = i & u16_bit_mask;
+				// no overlaps, so we can just or it in
+				storage[storage_index] |= (palette_idx << u16_bit);
+			}
+		}
+	}
+
+	template<typename U, typename Setter>
+	void to_array(std::array<U, stored_length>& us, const Setter& setter) const {
+		{
+			u32 u16_bit_mask = this->u16_bit_mask();
+			u32 u16_mask = this->u16_mask();
+			for (u32 i = 0; i < stored_length; ++i) {
+				u32 storage_index = i >> palette_shift;
+				u32 u16_bit = i & u16_bit_mask;
+				setter(us[i], this->storage[(storage[storage_index] >> u16_bit) & u16_mask]);
+			}
+		}
+	}
+
+	void to_array(std::array<T, stored_length>& ts) const {
+		to_array<T>(ts, [](T& dest, T src) { dest = src; });
 	}
 };

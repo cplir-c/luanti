@@ -5,6 +5,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include "irr_v3d.h"
 #include "mapnode.h"
 #include "exceptions.h"
@@ -14,6 +15,7 @@
 #include "nodetimer.h"
 #include "modifiedstate.h"
 #include "util/numeric.h" // getContainerPos
+#include "util/paletted_storage.h"
 
 class Map;
 class IGameDef;
@@ -48,6 +50,54 @@ enum ModReason : u32 {
 	MOD_REASON_EXPIRE_IS_AIR              = 1 << 16,
 	MOD_REASON_VMANIP                     = 1 << 17,
 	MOD_REASON_UNKNOWN                    = 1 << 18,
+};
+
+// Paletted MapBlock data
+class MapBlockData {
+	PalettedStorage<content_t, 4096> paletted_content;
+	PalettedStorage<u8, 4096> paletted_param1;
+	PalettedStorage<u8, 4096> paletted_param2;
+
+	MapNode operator[](u32 idx) const {
+		return MapNode{
+				paletted_content[idx],
+				paletted_param1[idx], paletted_param2[idx]
+			};
+	}
+	void set_node(u32 idx, MapNode node) {
+		this->paletted_content.set_index(idx, node.param0);
+		this->paletted_param1.set_index(idx, node.param1);
+		this->paletted_param2.set_index(idx, node.param2);
+	}
+	MapNode get_node(u32 idx) const {
+		return (*this)[idx];
+	}
+	void try_shrink() {
+		this->paletted_content.try_shrink();
+		this->paletted_param1.try_shrink();
+		this->paletted_param2.try_shrink();
+	}
+
+	std::array<MapNode, 4096> toArray() const {
+		std::array<MapNode, 4096> arr;
+
+		this->paletted_content.toArray(arr,
+				[](MapNode& node, content_t c) { node.setContent(c); });
+		this->paletted_param1.toArray(arr,
+				[](MapNode& node, u8 param1) { node.setParam1(param1); });
+		this->paletted_param2.toArray(arr,
+				[](MapNode& node, u8 param1) { node.setParam2(param2); });
+
+		return arr;
+	}
+	void fromArray(const std::array<MapNode, 4096>& arr) {
+		this->paletted_content.fromArray(arr,
+				[](MapNode node){ return node.getContent(); });
+		this->paletted_param1.fromArray(arr,
+				[](MapNode node){ return node.getParam1(); });
+		this->paletted_param2.fromArray(arr,
+				[](MapNode node){ return node.getParam2(); });
+	}
 };
 
 ////
@@ -246,7 +296,7 @@ public:
 			throw InvalidPositionException();
 
 		expandNodesIfNeeded();
-		data[z * zstride + y * ystride + x] = n;
+		this->data.setNode(z * zstride + y * ystride + x, n);
 		raiseModified(MOD_STATE_WRITE_NEEDED, MOD_REASON_SET_NODE);
 	}
 
@@ -272,7 +322,7 @@ public:
 	inline void setNodeNoCheck(s16 x, s16 y, s16 z, MapNode n)
 	{
 		expandNodesIfNeeded();
-		data[z * zstride + y * ystride + x] = n;
+		this->data.setNode(z * zstride + y * ystride + x, n);
 		raiseModified(MOD_STATE_WRITE_NEEDED, MOD_REASON_SET_NODE);
 	}
 
@@ -486,7 +536,8 @@ private:
 	 * fragmentation (the array is exactly 16K, or exactly 4 bytes for a "monoblock"),
 	 * CPU caches and/or optimizability of algorithms working on this array.
 	 */
-	MapNode *data = nullptr;
+	// In case of newfound errors, this used to be: MapNode *data = nullptr;
+	MapBlockData data {};
 
 	// provides the item and node definitions
 	IGameDef *m_gamedef;
