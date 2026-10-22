@@ -80,32 +80,8 @@ class MapBlockData {
 		this->paletted_param2 .tryShrink();
 	}
 
-	std::array<MapNode, 4096> toArray() const {
-		std::array<MapNode, 4096> arr;
-
-		this->paletted_content.toArray(arr,
-				[](MapNode& node, content_t c) {
-					node.setContent(c);
-				});
-		this->paletted_param1.toArray(arr,
-				[](MapNode& node, u8 param1) {
-					node.setParam1(param1);
-				});
-		this->paletted_param2.toArray(arr,
-				[](MapNode& node, u8 param2) {
-					node.setParam2(param2);
-				});
-
-		return arr;
-	}
-	void fromArray(const std::array<MapNode, 4096>& arr) {
-		this->paletted_content.fromArray(arr.data(),
-				[](MapNode node){ return node.getContent(); });
-		this->paletted_param1.fromArray(arr.data(),
-				[](MapNode node){ return node.getParam1(); });
-		this->paletted_param2.fromArray(arr.data(),
-				[](MapNode node){ return node.getParam2(); });
-	}
+	std::array<MapNode, 4096> toArray() const;
+	void fromArray(const std::array<MapNode, 4096>& arr);
 
 	class Iterator {
 		u32 idx = 4096;

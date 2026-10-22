@@ -10,6 +10,7 @@
 #include <bitset>
 #include <algorithm>
 #include <iterator>
+#include <cassert>
 
 template<typename T, u32 stored_length>
 class PalettedStorage;
@@ -143,7 +144,9 @@ inline T PalettedStorage<T, stored_length>::readIndex(u32 idx) const {
 	u32 storage_index = idx >> palette_shift;
 	u32 u16_bit = idx & this->u16_bit_mask();
 	u32 u16_mask = this->u16_mask();
-	return palette[(storage[storage_index] >> u16_bit) & u16_mask];
+	u32 palette_idx = (storage[storage_index] >> u16_bit) & u16_mask;
+	assert(palette_idx < palette.size());
+	return palette[palette_idx];
 
 	/*
 	// The above is a branchess version of this:
