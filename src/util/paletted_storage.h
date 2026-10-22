@@ -23,13 +23,13 @@ class PalettedStorageMutRef {
 		storage(storage), idx(idx) {}
 
 	void operator =(T t) {
-		storage.write_index(idx, t);
+		storage.writeIndex(idx, t);
 	}
 	T operator *() const {
-		return storage.read_index(idx);
+		return storage.readIndex(idx);
 	}
 	operator T() const {
-		return storage.read_index(idx);
+		return storage.readIndex(idx);
 	}
 	// haha...
 	PalettedStorageMutRef operator->() {
@@ -67,7 +67,7 @@ class PalettedStorage {
 		return u16_bit_mask;
 	}
 
-	s32 map_t(T t) const {
+	s32 mapT(T t) const {
 		for (s32 i = 0; i < palette.size(); ++i) {
 			if (palette[i] == t) {
 				return i;
@@ -76,23 +76,23 @@ class PalettedStorage {
 		return -1;
 	}
 
-	u32 mapped_t(T t);
+	u32 mappedT(T t);
 
 	template<typename Fun>
-	void change_storage_size(u8 new_shift, const Fun& mapper);
+	void changeStorageSize(u8 new_shift, const Fun& mapper);
 
 public:
-	T read_index(u32 idx) const;
-	void write_index(u32 idx, T t);
+	T readIndex(u32 idx) const;
+	void writeIndex(u32 idx, T t);
 
 	T operator [](u32 idx) const {
-		return read_index(idx);
+		return readIndex(idx);
 	}
 	auto operator [](u32 idx) {
 		return PalettedStorageMutRef<T, stored_length>(*this, idx);
 	}
 
-	void try_shrink();
+	void tryShrink();
 
 public:
 	template<typename U = T, typename Accessor>

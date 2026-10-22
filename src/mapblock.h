@@ -67,28 +67,34 @@ class MapBlockData {
 			};
 	}
 	void setNode(u32 idx, MapNode node) {
-		this->paletted_content.write_index(idx, node.param0);
-		this->paletted_param1 .write_index(idx, node.param1);
-		this->paletted_param2 .write_index(idx, node.param2);
+		this->paletted_content.writeIndex(idx, node.param0);
+		this->paletted_param1 .writeIndex(idx, node.param1);
+		this->paletted_param2 .writeIndex(idx, node.param2);
 	}
 	MapNode getNode(u32 idx) const {
 		return (*this)[idx];
 	}
 	void try_shrink() {
-		this->paletted_content.try_shrink();
-		this->paletted_param1.try_shrink();
-		this->paletted_param2.try_shrink();
+		this->paletted_content.tryShrink();
+		this->paletted_param1 .tryShrink();
+		this->paletted_param2 .tryShrink();
 	}
 
 	std::array<MapNode, 4096> toArray() const {
 		std::array<MapNode, 4096> arr;
 
 		this->paletted_content.toArray(arr,
-				[](MapNode& node, content_t c) { node.setContent(c); });
+				[](MapNode& node, content_t c) {
+					node.setContent(c);
+				});
 		this->paletted_param1.toArray(arr,
-				[](MapNode& node, u8 param1) { node.setParam1(param1); });
+				[](MapNode& node, u8 param1) {
+					node.setParam1(param1);
+				});
 		this->paletted_param2.toArray(arr,
-				[](MapNode& node, u8 param2) { node.setParam2(param2); });
+				[](MapNode& node, u8 param2) {
+					node.setParam2(param2);
+				});
 
 		return arr;
 	}

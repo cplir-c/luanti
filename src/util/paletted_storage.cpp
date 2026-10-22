@@ -8,6 +8,8 @@
 #include <memory_resource>
 #include <algorithm>
 #include <iterator>
+// for content_t
+#include "mapnode.h"
 
 template<typename T, u32 stored_length>
 u32 PalettedStorage<T, stored_length>::u16_mask() const {
@@ -29,7 +31,7 @@ u32 PalettedStorage<T, stored_length>::u16_bit_mask() const {
 }
 
 template<typename T, u32 stored_length>
-s32 PalettedStorage<T, stored_length>::map_t(T t) const {
+s32 PalettedStorage<T, stored_length>::mapT(T t) const {
 	for (s32 i = 0; i < palette.size(); ++i) {
 		if (palette[i] == t) {
 			return i;
@@ -39,7 +41,7 @@ s32 PalettedStorage<T, stored_length>::map_t(T t) const {
 }
 
 template<typename T, u32 stored_length>
-u32 PalettedStorage<T, stored_length>::mapped_t(T t) {
+u32 PalettedStorage<T, stored_length>::mappedT(T t) {
 	for (u32 i = 0; i < palette.size(); ++i) {
 		if (palette[i] == t) {
 			return i;
@@ -48,7 +50,7 @@ u32 PalettedStorage<T, stored_length>::mapped_t(T t) {
 	if (palette.size() + 1 > this->u16_mask()) {
 		// it doesn't fit the current index size;
 		//		we need to expand all our indices
-		this->change_storage_size(this->palette_shift - 1, [](u32 i){ return i; });
+		this->changeStorageSize(this->palette_shift - 1, [](u32 i){ return i; });
 	}
 	u32 idx = u32(this->palette.size());
 	this->palette.emplace_back(t);
@@ -56,7 +58,7 @@ u32 PalettedStorage<T, stored_length>::mapped_t(T t) {
 }
 template<typename T, u32 stored_length>
 template<typename Fun>
-void PalettedStorage<T, stored_length>::change_storage_size<Fun>(
+void PalettedStorage<T, stored_length>::changeStorageSize<Fun>(
 			u8 new_shift, const Fun& mapper
 		) {
 	// unpack our indices,
@@ -92,7 +94,7 @@ void PalettedStorage<T, stored_length>::change_storage_size<Fun>(
 }
 
 template<typename T, u32 stored_length>
-T PalettedStorage<T, stored_length>::read_index(u32 idx) const {
+T PalettedStorage<T, stored_length>::readIndex(u32 idx) const {
 	u32 storage_index = idx >> palette_shift;
 	u32 u16_bit = idx & this->u16_bit_mask();
 	u32 u16_mask = this->u16_mask();
@@ -122,8 +124,8 @@ T PalettedStorage<T, stored_length>::read_index(u32 idx) const {
 	*/
 }
 template<typename T, u32 stored_length>
-void PalettedStorage<T, stored_length>::write_index(u32 idx, T t) {
-	u32 palette_idx = this->mapped_t(t);
+void PalettedStorage<T, stored_length>::writeIndex(u32 idx, T t) {
+	u32 palette_idx = this->mappedT(t);
 
 	u32 storage_index = idx >> palette_shift;
 	u32 u16_bit = idx & this->u16_bit_mask();
@@ -177,7 +179,7 @@ void PalettedStorage<T, stored_length>::tryShrink() {
 
 		// remap the storage for the new palette shift,
 		//		using our index map
-		this->change_storage_size(
+		this->changeStorageSize(
 				new_palette_shift,
 				[&map](u32 idx) { return map[idx]; }
 			);
@@ -186,7 +188,9 @@ void PalettedStorage<T, stored_length>::tryShrink() {
 
 template<typename T, u32 stored_length>
 template<typename U = T, typename Accessor>
-void PalettedStorage<T, stored_length>::fromArray(const U us[stored_length], const Accessor& accessor) {
+void PalettedStorage<T, stored_length>::fromArray<U, Accessor>(
+			const U us[stored_length], const Accessor& accessor
+		) {
 	// unpack the Us
 	T ts[stored_length];
 	for (u32 i = 0; i < stored_length; ++i) {
@@ -199,7 +203,9 @@ void PalettedStorage<T, stored_length>::fromArray(const U us[stored_length], con
 }
 
 template<typename T, u32 stored_length>
-void PalettedStorage<T, stored_length>::fromArray(const T ts[stored_length]) {
+void PalettedStorage<T, stored_length>::fromArray(
+			const T ts[stored_length]
+		) {
 	// create our palette
 	{
 		std::array<T, stored_length> arr {};
