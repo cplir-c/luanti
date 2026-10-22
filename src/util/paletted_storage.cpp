@@ -1,15 +1,14 @@
-#include "util/paletted_storage.h"
-
 #include "irrTypes.h"
-
-#include <memory>
 #include <vector>
 #include <bitset>
+
+#ifndef PALETTED_STORAGE_HEADER__
+#include <memory>
 #include <memory_resource>
 #include <algorithm>
 #include <iterator>
-// for content_t
-#include "mapnode.h"
+
+#include "util/paletted_storage.h"
 
 template<typename T, u32 stored_length>
 u32 PalettedStorage<T, stored_length>::u16_mask() const {
@@ -20,7 +19,7 @@ u32 PalettedStorage<T, stored_length>::u16_mask() const {
 	// (1<<1<<(4-shift))-1: {0xffff, 0xff, 0xf, 0x3, 0x1}
 	u32 u16_mask = (u32(1) << (u32(1) << (4 - palette_shift))) - 1;
 	return u16_mask;
-}
+};
 template<typename T, u32 stored_length>
 u32 PalettedStorage<T, stored_length>::u16_bit_mask() const {
 	// goal: {0x0, 0x1, 0x3, 0x7, 0xf}[shift]
@@ -28,7 +27,7 @@ u32 PalettedStorage<T, stored_length>::u16_bit_mask() const {
 	// (1<<shift)-1: {0, 0x1, 0x3, 0x7, 0xf}
 	u32 u16_bit_mask = (u32(1) << palette_shift) - 1;
 	return u16_bit_mask;
-}
+};
 
 template<typename T, u32 stored_length>
 s32 PalettedStorage<T, stored_length>::mapT(T t) const {
@@ -38,7 +37,7 @@ s32 PalettedStorage<T, stored_length>::mapT(T t) const {
 		}
 	}
 	return -1;
-}
+};
 
 template<typename T, u32 stored_length>
 u32 PalettedStorage<T, stored_length>::mappedT(T t) {
@@ -55,43 +54,7 @@ u32 PalettedStorage<T, stored_length>::mappedT(T t) {
 	u32 idx = u32(this->palette.size());
 	this->palette.emplace_back(t);
 	return idx;
-}
-template<typename T, u32 stored_length>
-template<typename Fun>
-void PalettedStorage<T, stored_length>::changeStorageSize<Fun>(
-			u8 new_shift, const Fun& mapper
-		) {
-	// unpack our indices,
-	// increase our palette shift,
-	// then repack our indices
-	u32 indices[stored_length] = {};
-
-	// unpack indices
-	{
-		u32 u16_bit_mask = this->u16_bit_mask();
-		u32 u16_mask = this->u16_mask();
-		for (u32 i = 0; i < stored_length; ++i) {
-			u32 storage_index = i >> palette_shift;
-			u32 u16_bit = i & u16_bit_mask;
-			// apply the mapper function to the index as it's unpacked
-			indices[i] = mapper(u32((storage[storage_index] >> u16_bit) & u16_mask));
-		}
-	}
-
-	this->palette_shift = new_shift;
-	this->storage.reset(paletted_storage_allocate_(stored_length >> palette_shift));
-
-	// repack indices
-	{
-		u32 u16_bit_mask = this->u16_bit_mask();
-		for (u32 i = 0; i < stored_length; ++i) {
-			u32 storage_index = i >> palette_shift;
-			u32 u16_bit = i & u16_bit_mask;
-			// no overlaps, so we can just or it in
-			storage[storage_index] |= (indices[i] << u16_bit);
-		}
-	}
-}
+};
 
 template<typename T, u32 stored_length>
 T PalettedStorage<T, stored_length>::readIndex(u32 idx) const {
@@ -122,7 +85,7 @@ T PalettedStorage<T, stored_length>::readIndex(u32 idx) const {
 	}
 	return palette[indexed];
 	*/
-}
+};
 template<typename T, u32 stored_length>
 void PalettedStorage<T, stored_length>::writeIndex(u32 idx, T t) {
 	u32 palette_idx = this->mappedT(t);
@@ -135,7 +98,7 @@ void PalettedStorage<T, stored_length>::writeIndex(u32 idx, T t) {
 	storage[storage_index] &= ~(u16_mask << u16_bit);
 	// add in the new one
 	storage[storage_index] |= (palette_idx & u16_mask) << u16_bit;
-}
+};
 
 template<typename T, u32 stored_length>
 void PalettedStorage<T, stored_length>::tryShrink() {
@@ -184,23 +147,7 @@ void PalettedStorage<T, stored_length>::tryShrink() {
 				[&map](u32 idx) { return map[idx]; }
 			);
 	} // if used_slots < (current_slots >> 1)
-} // void tryShrink()
-
-template<typename T, u32 stored_length>
-template<typename U = T, typename Accessor>
-void PalettedStorage<T, stored_length>::fromArray<U, Accessor>(
-			const U us[stored_length], const Accessor& accessor
-		) {
-	// unpack the Us
-	T ts[stored_length];
-	for (u32 i = 0; i < stored_length; ++i) {
-		// becuase ts is uninitialized,
-		//		we have to use placement-new here
-		new (ts + i) T(accessor(us[i]));
-	}
-
-	this->fromArray(ts);
-}
+}; // void tryShrink()
 
 template<typename T, u32 stored_length>
 void PalettedStorage<T, stored_length>::fromArray(
@@ -239,16 +186,73 @@ void PalettedStorage<T, stored_length>::fromArray(
 			storage[storage_index] |= (palette_idx << u16_bit) & u16_mask;
 		}
 	}
-}
+};
+#undef PALETTED_STORAGE_HEADER__
+#else // PALETTED_STORAGE_HEADER__
+
+template<typename T, u32 stored_length>
+template<typename Fun>
+inline void PalettedStorage<T, stored_length>::changeStorageSize(
+			u8 new_shift, const Fun& mapper
+		) {
+	// unpack our indices,
+	// increase our palette shift,
+	// then repack our indices
+	u32 indices[stored_length] = {};
+
+	// unpack indices
+	{
+		u32 u16_bit_mask = this->u16_bit_mask();
+		u32 u16_mask = this->u16_mask();
+		for (u32 i = 0; i < stored_length; ++i) {
+			u32 storage_index = i >> palette_shift;
+			u32 u16_bit = i & u16_bit_mask;
+			// apply the mapper function to the index as it's unpacked
+			indices[i] = mapper(u32((storage[storage_index] >> u16_bit) & u16_mask));
+		}
+	}
+
+	this->palette_shift = new_shift;
+	this->storage.reset(paletted_storage_allocate_(stored_length >> palette_shift));
+
+	// repack indices
+	{
+		u32 u16_bit_mask = this->u16_bit_mask();
+		for (u32 i = 0; i < stored_length; ++i) {
+			u32 storage_index = i >> palette_shift;
+			u32 u16_bit = i & u16_bit_mask;
+			// no overlaps, so we can just or it in
+			storage[storage_index] |= (indices[i] << u16_bit);
+		}
+	}
+};
+
+template<typename T, u32 stored_length>
+template<typename U, typename Accessor>
+inline void PalettedStorage<T, stored_length>::fromArray(
+			const U us[stored_length], const Accessor& accessor
+		) {
+	// unpack the Us
+	T ts[stored_length];
+	for (u32 i = 0; i < stored_length; ++i) {
+		// becuase ts is uninitialized,
+		//		we have to use placement-new here
+		new (ts + i) T(accessor(us[i]));
+	}
+
+	this->fromArray(ts);
+};
 
 template<typename T, u32 stored_length>
 template<typename U, typename Setter>
-void PalettedStorage<T, stored_length>::toArray(std::array<U, stored_length>& us, const Setter& setter) const {
+inline void PalettedStorage<T, stored_length>::toArray(std::array<U, stored_length>& us, const Setter& setter) const {
 	u32 u16_bit_mask = this->u16_bit_mask();
 	u32 u16_mask = this->u16_mask();
 	for (u32 i = 0; i < stored_length; ++i) {
 		u32 storage_index = i >> palette_shift;
 		u32 u16_bit = i & u16_bit_mask;
-		setter(us[i], this->storage[(storage[storage_index] >> u16_bit) & u16_mask]);
+		T element = this->palette[(storage[storage_index] >> u16_bit) & u16_mask];
+		setter(us[i], element);
 	}
-}
+};
+#endif // PALETTED_STORAGE_HEADER__

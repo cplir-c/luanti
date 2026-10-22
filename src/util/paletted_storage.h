@@ -4,11 +4,12 @@
 
 #include <memory>
 #include <vector>
+#include <cstring>
 
 template<typename T, u32 stored_length>
 class PalettedStorage;
 
-static u16* paletted_storage_allocate_(u32 length) {
+static inline u16* paletted_storage_allocate_(u32 length) {
 	u16* buf = new u16[length];
 	std::memset(buf, 0, sizeof(u16) * length);
 	return buf;
@@ -50,36 +51,14 @@ class PalettedStorage {
 	};
 	u8 palette_shift = 4;
 
-	u32 u16_mask() const {
-		// goal: {0x1, 0x3, 0xf, 0xff, 0xffff}
-		// 4 - palette_shift: {4, 3, 2, 1, 0}
-		// 1 << (4-shift)   : {16, 8, 4, 2, 1}
-		// 1 << 1<<(4-shift): {0x10000, 0x100, 0x10, 0x4, 0x2}
-		// (1<<1<<(4-shift))-1: {0xffff, 0xff, 0xf, 0x3, 0x1}
-		u32 u16_mask = (u32(1) << (u32(1) << (4 - palette_shift))) - 1;
-		return u16_mask;
-	}
-	u32 u16_bit_mask() const {
-		// goal: {0x0, 0x1, 0x3, 0x7, 0xf}[shift]
-		// 1 << shift: {1, 2, 4, 8, 16}
-		// (1<<shift)-1: {0, 0x1, 0x3, 0x7, 0xf}
-		u32 u16_bit_mask = (u32(1) << palette_shift) - 1;
-		return u16_bit_mask;
-	}
+	u32 u16_mask() const;
+	u32 u16_bit_mask() const;
 
-	s32 mapT(T t) const {
-		for (s32 i = 0; i < palette.size(); ++i) {
-			if (palette[i] == t) {
-				return i;
-			}
-		}
-		return -1;
-	}
-
+	s32 mapT(T t) const;
 	u32 mappedT(T t);
 
 	template<typename Fun>
-	void changeStorageSize(u8 new_shift, const Fun& mapper);
+	inline void changeStorageSize(u8 new_shift, const Fun& mapper);
 
 public:
 	T readIndex(u32 idx) const;
@@ -96,14 +75,18 @@ public:
 
 public:
 	template<typename U = T, typename Accessor>
-	void fromArray(const U us[stored_length], const Accessor& accessor);
+	inline void fromArray(const U us[stored_length], const Accessor& accessor);
 
 	void fromArray(const T ts[stored_length]);
 
 	template<typename U, typename Setter>
-	void toArray(std::array<U, stored_length>& us, const Setter& setter) const;
+	inline void toArray(std::array<U, stored_length>& us, const Setter& setter) const;
 
 	void toArray(std::array<T, stored_length>& ts) const {
 		toArray<T>(ts, [](T& dest, T src) { dest = src; });
 	}
 };
+
+// get around the definitions-must-be-visible-from-invocations thing
+#define PALETTED_STORAGE_HEADER__ 1
+#include "util/paletted_storage.cpp"
