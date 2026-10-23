@@ -270,7 +270,9 @@ void MapBlock::copyFrom(const VoxelManipulator &src)
 	this->data.fromArray(data_block);
 }
 
-void MapBlock::reallocate(u32 /*count*/, MapNode) {}
+void MapBlock::reallocate(u32 count, MapNode node) {
+	this->data.fillWithNode(node);
+}
 
 void MapBlock::tryShrinkNodes()
 {

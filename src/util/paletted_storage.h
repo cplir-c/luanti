@@ -10,7 +10,7 @@
 #include <bitset>
 #include <algorithm>
 #include <iterator>
-#include <cassert>
+#include "porting.h"
 
 template<typename T, u32 stored_length>
 class PalettedStorage;
@@ -50,7 +50,12 @@ class PalettedStorageMutRef {
 // I looked at std::pmr::unsynchronized_pool_resource, but std::unique_ptr did not take such an option.
 
 template<typename T, u32 stored_length = (1 << 12)>
+struct PalettedStorageTestAccessors;
+
+template<typename T, u32 stored_length = (1 << 12)>
 class PalettedStorage {
+	friend struct PalettedStorageTestAccessors<T, stored_length>;
+
 	std::vector<T> palette {};
 	std::unique_ptr<u16[]> storage {
 		paletted_storage_allocate_(stored_length >> 4)
@@ -78,16 +83,23 @@ public:
 	}
 
 	inline void tryShrink();
+	void fill(T t) {
+		this->palette.assign({t});
+		if (this->palette_shift != 4) {
+			this->storage.reset(paletted_storage_allocate_(stored_length >> 4));
+			this->palette_shift = 4;
+		}
+		std::memset(&this->storage[0], 0,
+					(stored_length >> 4) * sizeof(u16));
+	}
 
-public:
+	// -- fromArray(type[]) and toArray(std::array&)
 	template<typename U = T, typename Accessor>
 	inline void fromArray(const U us[stored_length], const Accessor& accessor);
-
 	inline void fromArray(const T ts[stored_length]);
 
 	template<typename U, typename Setter>
 	inline void toArray(std::array<U, stored_length>& us, const Setter& setter) const;
-
 	void toArray(std::array<T, stored_length>& ts) const {
 		toArray<T>(ts, [](T& dest, T src) { dest = src; });
 	}
@@ -145,8 +157,13 @@ inline T PalettedStorage<T, stored_length>::readIndex(u32 idx) const {
 	u32 u16_bit = idx & this->u16_bit_mask();
 	u32 u16_mask = this->u16_mask();
 	u32 palette_idx = (storage[storage_index] >> u16_bit) & u16_mask;
-	assert(palette_idx < palette.size());
-	return palette[palette_idx];
+	if (palette_idx >= palette.size()) {
+		static thread_local char buf[80];
+		porting::mt_snprintf(buf, 80, "Tried to access index %lu in a %zu length palette.",
+				(long unsigned int) palette_idx, palette.size());
+		throw std::out_of_range(buf);
+	}
+	return palette.at(palette_idx);
 
 	/*
 	// The above is a branchess version of this:

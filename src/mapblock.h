@@ -83,6 +83,12 @@ class MapBlockData {
 	std::array<MapNode, 4096> toArray() const;
 	void fromArray(const std::array<MapNode, 4096>& arr);
 
+	void fillWithNode(MapNode node) {
+		this->paletted_content.fill(node.getContent());
+		this->paletted_param1.fill(node.getParam1());
+		this->paletted_param2.fill(node.getParam2());
+	}
+
 	class Iterator {
 		u32 idx = 4096;
 		MapBlockData& data;
