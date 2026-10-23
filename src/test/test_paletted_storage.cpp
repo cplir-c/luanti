@@ -3,9 +3,28 @@
 
 #include "util/paletted_storage.h"
 
+#include <iostream>
+#include <vector>
+#include <memory>
+#include <cstring>
+
 template<typename T, u32 stored_length>
 struct PalettedStorageTestAccessors {
 	using PStore = PalettedStorage<T, stored_length>;
+
+	std::vector<T>& getPaletteMut(PStore& s) const {
+		return s.palette;
+	}
+	const std::vector<T>& getPalette(const PStore& s) const {
+		return s.palette;
+	}
+
+	const u16* getStorage(const PStore& s) const {
+		return s.storage.get();
+	}
+	std::unique_ptr<u16[]>& getStorageMut(PStore& s) const {
+		return s.storage;
+	}
 
 	void setPaletteShift(PStore& s, u8 shift) const {
 		s.palette_shift = shift;
@@ -27,8 +46,13 @@ struct PalettedStorageTestAccessors {
 	}
 };
 
-TEST_CASE("branchless-read-equivalence") {
-	SECTION("storage index") {
+//introduce a compile-time error to see if this is compiling
+
+TEST_CASE("branchless-read-equivalence", "[paletted_storage]") {
+	CAPTURE("testing paletted_storage bitops");
+	std::cerr << "testing paletted storage";
+
+	SECTION("storage-index") {
 		// true by definition:
 		//		idx >> palette_shift ==
 		//		[=](){ switch(palette_shift) {
@@ -102,4 +126,37 @@ TEST_CASE("branchless-read-equivalence") {
 			REQUIRE( u16_mask == switched );
 		}
 	}
-};
+}
+
+TEST_CASE("array <-> palette tests") {
+	SECTION("fixed fromArray tests") {
+		PalettedStorage<int, 8> storage {};
+		PalettedStorageTestAccessors<int, 8> accessor {};
+		// 0110100110010110... (thue-morse sequence)
+		storage.fromArray(std::array<int, 8>({2, 4, 4, 2, 4, 2, 2, 4}).data());
+		std::vector<int> palette {2, 4};
+		REQUIRE( accessor.getPalette(storage) == palette );
+		REQUIRE( accessor.getPaletteShift(storage) == 4 );
+
+		// 1 bit eacah, and in opposite order, so...
+		// 0b1001_0110 -> 0x96
+		u16 packed[] = {0x96};
+		REQUIRE( std::memcmp( accessor.getStorage(storage), packed, sizeof(u16) * 1 ) == 0 );
+	}
+	SECTION("fixed toArray tests") {
+		PalettedStorageTestAccessors<int, 8> accessor {};
+		// same example as above, but in reverse
+		PalettedStorage<int, 8> storage {};
+		accessor.setPaletteShift(storage, 4);
+		accessor.getPaletteMut(storage).assign({2, 4});
+		accessor.getStorageMut(storage).reset(new u16[1]);
+		accessor.getStorageMut(storage)[0] = 0x96;
+
+		std::array<int, 8> unpacked {};
+		storage.toArray(unpacked);
+		std::array<int, 8> expected {2, 4, 4, 2, 4, 2, 2, 4};
+		REQUIRE( unpacked == expected );
+	}
+
+	REQUIRE( false );
+}
